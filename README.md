@@ -13,11 +13,10 @@ Preflight Tools provides reference implementations for protocol compliance valid
 
 - **MCP** (Model Context Protocol) - Anthropic's protocol for LLM tool integration
 - **A2A** (Agent-to-Agent) - Peer communication protocol for autonomous agents
-- **ACE** (Agentic Collaboration Ecosystem) - Platform orchestration standards
-- **OCS/OCC/OCP** - *(Coming soon)* Open Context Standard
+- **ACE** (Autonomic Compliance Ecosystem) - Platform orchestration standards
+- **OCC/OCS/OCP** - *(Coming soon)* Observability, compliance, and policy protocols
 
 ## Installation
-
 ```bash
 # Via pip
 pip install preflight-tools
@@ -36,7 +35,6 @@ poetry install
 ### MCP Validation
 
 Validate your MCP server implementation against the specification:
-
 ```bash
 # Validate a tools definition file
 mcp-preflight-check validate path/to/tools.py
@@ -54,6 +52,7 @@ mcp-preflight-check validate --verbose path/to/tools.py
 ✅ Properties schemas: All using objects {}
 ✅ Content wrappers: All responses properly wrapped
 ✅ Notification handling: Correctly implemented
+✅ JSON-RPC structure: All responses include required fields
 ❌ Stdout pollution: Found 3 print statements that will break stdio transport
 
 Fix suggestions:
@@ -65,20 +64,18 @@ Fix suggestions:
 ### A2A Validation
 
 *(Coming soon)* Validate Agent-to-Agent protocol implementations:
-
 ```bash
 a2a-preflight-check validate path/to/agent_config.yml
 ```
 
-## The Five Critical MCP Fixes
+## The Six Critical MCP Fixes
 
-This validator is built from real-world debugging of SyzygySys ACE LAP::CORE's MCP integration. See the full story: [Debugging the Bridge](https://syzygysys.github.io/docs/architects_notebook/log_14.html)
+This validator is built from real-world debugging of LAP::CORE's MCP integration. See the full story: [Debugging the Bridge](https://syzygysys.github.io/docs/architects_notebook/log_14.html)
 
 ### 1. Tool Name Pattern
 
 **Problem:** Tool names with dots fail Zod validation  
 **Rule:** Must match `^[a-zA-Z0-9_-]{1,64}$`
-
 ```python
 # ❌ FAILS
 {"name": "lap.health.ping"}
@@ -91,7 +88,6 @@ This validator is built from real-world debugging of SyzygySys ACE LAP::CORE's M
 
 **Problem:** Empty properties as `[]` instead of `{}`  
 **Rule:** JSON Schema requires properties to be an object
-
 ```python
 # ❌ FAILS
 {
@@ -114,7 +110,6 @@ This validator is built from real-world debugging of SyzygySys ACE LAP::CORE's M
 
 **Problem:** Returning raw data instead of MCP content structure  
 **Rule:** All responses must be wrapped
-
 ```python
 # ❌ FAILS
 return {"status": "ok", "value": 42}
@@ -132,7 +127,6 @@ return {
 
 **Problem:** Returning errors for notification requests (no `id` field)  
 **Rule:** Notifications don't expect responses
-
 ```python
 # ❌ FAILS
 async def dispatch(self, request: dict) -> str:
@@ -154,7 +148,6 @@ async def dispatch(self, request: dict) -> str:
 
 **Problem:** Any output to stdout breaks JSON-RPC stdio transport  
 **Rule:** Redirect stderr early, never use print()
-
 ```bash
 # ❌ FAILS - stderr goes to stdout
 poetry run mcp-server 2>> /tmp/debug.log
@@ -173,10 +166,41 @@ import logging
 logging.error("Debug message")  # Goes to stderr
 ```
 
+### 6. JSON-RPC Response Structure
+
+**Problem:** Using `exclude_none=True` removes required fields when they're `None`  
+**Rule:** JSON-RPC 2.0 requires `id` and `jsonrpc` in every response
+```python
+# ❌ FAILS - removes 'id' when it's None
+class JsonRpcResponse(BaseModel):
+    jsonrpc: str = "2.0"
+    id: Optional[Any] = None
+    result: Optional[Any] = None
+    error: Optional[Dict[str, Any]] = None
+    
+    def json(self, **kwargs):
+        return self.model_dump_json(exclude_none=True, **kwargs)
+
+# ✅ PASSES - keeps required fields
+class JsonRpcResponse(BaseModel):
+    jsonrpc: str = "2.0"
+    id: Optional[Any] = None
+    result: Optional[Any] = None
+    error: Optional[Dict[str, Any]] = None
+    
+    def json(self, **kwargs):
+        data = self.model_dump()
+        # Keep id and jsonrpc always, only exclude result/error conditionally
+        if data.get('error') is not None:
+            data.pop('result', None)
+        elif data.get('result') is not None:
+            data.pop('error', None)
+        return json.dumps(data)
+```
+
 ## API Usage
 
 ### Python API
-
 ```python
 from preflight_tools.mcp import MCPValidator
 
@@ -198,7 +222,6 @@ print(f"Tools found: {len(results.tools)}")
 ### Configuration
 
 Create a `.preflight.toml` in your project root:
-
 ```toml
 [mcp]
 strict = true  # Fail on warnings
@@ -210,7 +233,6 @@ require_auth = true
 ```
 
 ## Development
-
 ```bash
 # Clone and setup
 git clone https://github.com/syzygysys/preflight-tools.git
@@ -230,7 +252,6 @@ poetry run mypy src/
 ```
 
 ## Architecture
-
 ```
 preflight-tools/
 ├── src/preflight_tools/
@@ -259,9 +280,9 @@ We welcome contributions! This is a reference implementation for the community.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Related Projects
-- [SyzygySys.io](https://syzygysys.io) - SyzygySys.io Makers of ACE 
+
 - [LAP::CORE](https://github.com/syzygysys/lap_core) - LAPI orchestration platform
-- [ACE Framework](https://github.com/syzygysys) - Agentic Collaboration Ecosystem
+- [ACE Framework](https://github.com/syzygysys) - Autonomic Compliance Ecosystem
 - [MCP Specification](https://modelcontextprotocol.io/) - Official MCP docs
 
 ## References
