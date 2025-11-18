@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debugging the Bridge: Six MCP Fixes for Claude Desktop</title>
+  <link rel="icon" type="image/x-icon" href="/assets/favicon.ico">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Georgia', serif;
+            line-height: 1.8;
+            color: #2c3e50;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 2rem;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 3rem;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            color: #1a1a1a;
+            margin-bottom: 0.5rem;
+            line-height: 1.2;
+        }
+        
+        .metadata {
+            color: #7f8c8d;
+            font-size: 0.95rem;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid #ecf0f1;
+        }
+        
+        .subtitle {
+            font-size: 1.1rem;
+            color: #555;
+            font-style: italic;
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+        
+        h2 {
+            font-size: 1.8rem;
+            color: #2c3e50;
+            margin-top: 2.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        h3 {
+            font-size: 1.3rem;
+            color: #34495e;
+            margin-top: 2rem;
+            margin-bottom: 0.8rem;
+        }
+        
+        p {
+            margin-bottom: 1.2rem;
+            text-align: justify;
+        }
+        
+        code {
+            background: #f8f9fa;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            color: #e74c3c;
+        }
+        
+        pre {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 1.5rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 1.5rem 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        
+        .fix-block {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            border-radius: 4px;
+        }
+        
+        .fix-block h4 {
+            color: #2980b9;
+            margin-bottom: 0.8rem;
+            font-size: 1.1rem;
+        }
+        
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 1rem;
+            margin: 1.5rem 0;
+            border-radius: 4px;
+        }
+        
+        .success {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 1rem;
+            margin: 1.5rem 0;
+            border-radius: 4px;
+        }
+        
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 2rem 0;
+            font-size: 0.95rem;
+        }
+        
+        .summary-table th {
+            background: #34495e;
+            color: white;
+            padding: 0.8rem;
+            text-align: left;
+            font-weight: normal;
+        }
+        
+        .summary-table td {
+            padding: 0.8rem;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        
+        .summary-table tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        
+        .notebook-band {
+            background: rgba(255,255,255,0.92);
+            border: 1px solid rgba(0,0,0,0.12);
+            border-radius: 8px;
+            font-size: 0.8rem;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: #2c3e50;
+            padding: 0.6rem 1.1rem;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin: 0 auto 1.5rem;
+            max-width: 900px;
+        }
+
+        .notebook-band a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .notebook-band .band-right {
+            display: flex;
+            gap: 0.35rem;
+            align-items: baseline;
+            white-space: nowrap;
+        }
+        
+        .notebook-footer {
+            margin-top: 2.5rem;
+        }
+        
+        .integrity-block {
+            background: rgba(255,255,255,0.92);
+            padding: 1.2rem;
+            border-radius: 8px;
+            border: 1px solid rgba(0,0,0,0.12);
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            color: #2c3e50;
+            line-height: 1.6;
+        }
+
+        .integrity-block code {
+            display: inline-block;
+            background: #f8f9fa;
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+        }
+        
+        .legal-footer {
+            margin-top: 1.5rem;
+            font-size: 0.8rem;
+            text-align: center;
+            color: #4b5563;
+            line-height: 1.6;
+        }
+        
+        blockquote {
+            border-left: 4px solid #3498db;
+            padding-left: 1.5rem;
+            margin: 1.5rem 0;
+            font-style: italic;
+            color: #555;
+        }
+        
+        a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        .img-left {
+            float: left;
+            margin: 0 1.5rem 1rem 0;
+            max-width: 45%;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .clearfix::after {
+            content: "";
+            display: table;
+            clear: both;
+        }
+        
+        .toc {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            padding: 1.5rem;
+            margin: 2rem 0;
+            border-radius: 4px;
+        }
+        
+        .toc h3 {
+            margin-top: 0;
+            margin-bottom: 1rem;
+            color: #2c3e50;
+        }
+        
+        .toc ol {
+            margin-left: 1.5rem;
+            margin-bottom: 0;
+        }
+        
+        .toc li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .toc a {
+            color: #2c3e50;
+            text-decoration: none;
+        }
+        
+        .toc a:hover {
+            color: #3498db;
+            text-decoration: underline;
+        }
+        
+        .debug-section {
+            background: #f8f9fa;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+            border-left: 3px solid #6c757d;
+        }
+        
+        .debug-section h4 {
+            color: #495057;
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+        }
+    </style>
+  <script defer src="/assets/js/analytics.js"></script>
+</head>
+<body>
+    <section class="notebook-band">
+        <div class="band-left">
+            <a class="band-home" href="/docs/architects_notebook/notebook_contents.html">Architect’s Notebook</a>
+            <span aria-hidden="true">·</span>
+            <span>Entry 14</span>
+        </div>
+        <div class="band-right">
+            <span class="rat-label">RAT Anchor ID:</span>
+            <span class="rat-id">RAT-ACE-LOG-14-MCP-DEBUG</span>
+        </div>
+    </section>
+
+    <div class="container">
+        <h1>Debugging the Bridge: Six MCP Fixes for Claude Desktop</h1>
+        
+        <div class="metadata">
+            Architect's Notebook · Entry 14 · 2025-11-07 (revised 2025-11-19)
+        </div>
+        
+        <p class="subtitle">
+            A technical deep-dive into diagnosing and resolving Model Context Protocol (MCP) connection failures between Claude Desktop and LAP::CORE. Six hours of debugging distilled into six critical fixes that illuminate the subtle contract requirements of the MCP specification—and now serve as the blueprint for the MCP Preflight Validator.
+        </p>
+
+        <div class="toc">
+            <h3>Table of Contents</h3>
+            <ol>
+                <li><a href="#players">The Players</a></li>
+                <li><a href="#problem-space">The Problem Space</a></li>
+                <li><a href="#environment">The Environment</a></li>
+                <li><a href="#six-fixes">The Six Fixes</a>
+                    <ol style="list-style-type: lower-alpha; margin-left: 1.5rem;">
+                        <li><a href="#fix-1">Tool Names Must Match Zod Validation Pattern</a></li>
+                        <li><a href="#fix-2">Schema Properties Must Be Objects, Not Arrays</a></li>
+                        <li><a href="#fix-3">MCP Requires Content Wrapper in Responses</a></li>
+                        <li><a href="#fix-4">Notification Handlers Must Return Empty String</a></li>
+                        <li><a href="#fix-5">Stdio Transport Requires Pure JSON-RPC on Stdout</a></li>
+                        <li><a href="#fix-6">JSON-RPC Responses Must Keep `id` and `jsonrpc`</a></li>
+                    </ol>
+                </li>
+                <li><a href="#wsl2-complexity">The WSL2 Complexity Layer</a></li>
+                <li><a href="#validation-strategy">Validation Strategy</a></li>
+                <li><a href="#working-config">The Working Configuration</a></li>
+                <li><a href="#lessons">Lessons for MCP Implementers</a></li>
+                <li><a href="#reference-impl">Reference Implementation</a></li>
+                <li><a href="#community">Community Contribution</a></li>
+                <li><a href="#debugging-addendum">Debugging Addendum</a></li>
+            </ol>
+        </div>
+
+        <h2 id="players">The Players</h2>
+        
+        <p>
+            Architect Kevin on point. PEBKAC.
+        </p>
+        
+        <p>
+            Special Field Agent Chuck - riding Anthropic Claude Sonnet 4.5 via Claude Desktop and VS Code.      
+        </p>
+
+        <p>
+            Special Field Agent Marvin2 - riding Alibaba Qwen/Qwen2.5-Coder-3B-Instruct on vLLM via ACE::COMMS.      
+        </p>
+        
+        <h2 id="problem-space">The Problem Space</h2>
+        
+        <p>
+            When building LAP::CORE's MCP server to expose our internal telemetry and operations platform to Claude Desktop, we encountered a deceptively simple failure mode: the server would start, the stdio transport would connect, but no tools would appear in Claude Desktop's interface. The logs showed connection establishment, but complete silence on tool discovery.
+        </p>
+        
+        <p>
+            This is the worst kind of bug—no error messages, no exceptions, just absence. The MCP protocol's stdio transport is particularly challenging to debug because it multiplexes JSON-RPC over stdin/stdout, meaning any stray log output or protocol violation creates silent failures.
+        </p>
+
+        <h2 id="environment">The Environment</h2>
+        
+        <div class="clearfix">
+            <img src="log_14_mcp_error_screenshot.png" alt="MCP lap-core validation errors showing Zod schema failures in Claude Desktop" class="img-left">
+            
+            <p>
+                Our debugging environment added layers of complexity:
+            </p>
+            
+            <ul style="margin-left: 2rem; margin-bottom: 1.2rem;">
+                <li><strong>Windows 11 Pro</strong> running Claude Desktop</li>
+                <li><strong>WSL2 Ubuntu</strong> hosting the Python MCP server</li>
+                <li><strong>Poetry</strong> managing Python dependencies</li>
+                <li><strong>Docker Compose</strong> running supporting infrastructure</li>
+                <li><strong>MCP Protocol 2024-11-05</strong> specification compliance</li>
+            </ul>
+            
+            <p>
+                The Windows-to-WSL2 bridge meant every invocation required careful PATH and environment management, and the stdio transport meant debugging had to happen entirely through log files—no interactive debugging possible.
+            </p>
+        </div>
+
+        <h2 id="six-fixes">The Six Fixes</h2>
+
+        <div class="fix-block" id="fix-1">
+            <h4>Fix #1: Tool Names Must Match Zod Validation Pattern</h4>
+            
+            <p>
+                <strong>The Problem:</strong> Our tool names included dots, like <code>lap.health.ping</code>. While dots are common in namespace conventions, the MCP specification enforces strict naming via Zod schema validation using the pattern <code>^[a-zA-Z0-9_-]{1,64}$</code>.
+            </p>
+            
+            <p>
+                <strong>The Symptom:</strong> Tools were silently rejected during the <code>tools/list</code> request. Claude Desktop received the tool list but validation failed before tools could be registered.
+            </p>
+            
+            <p>
+                <strong>The Solution:</strong> Renamed all tools to use underscores: <code>lap_health_ping</code>, <code>lap_core_status</code>, etc.
+            </p>
+            
+            <pre>// Before - FAILS validation
+{
+  "name": "lap.health.ping",
+  "description": "..."
+}
+
+// After - PASSES validation  
+{
+  "name": "lap_health_ping",
+  "description": "..."
+}</pre>
+        </div>
+
+        <div class="fix-block" id="fix-2">
+            <h4>Fix #2: Schema Properties Must Be Objects, Not Arrays</h4>
+            
+            <p>
+                <strong>The Problem:</strong> Our initial implementation used <code>"properties": []</code> for tools with no parameters. While Python's type system is forgiving, JSON Schema strictly requires properties to be an object type.
+            </p>
+            
+            <p>
+                <strong>The Symptom:</strong> Schema validation failures in Claude Desktop, though the error was swallowed silently rather than surfaced to logs.
+            </p>
+            
+            <p>
+                <strong>The Solution:</strong> Changed empty properties arrays to empty objects:
+            </p>
+            
+            <pre>// Before - Invalid JSON Schema
+{
+  "inputSchema": {
+    "type": "object",
+    "properties": []  // ❌ Wrong type
+  }
+}
+
+// After - Valid JSON Schema
+{
+  "inputSchema": {
+    "type": "object", 
+    "properties": {}  // ✅ Correct type
+  }
+}</pre>
+        </div>
+
+        <div class="fix-block" id="fix-3">
+            <h4>Fix #3: MCP Requires Content Wrapper in Responses</h4>
+            
+            <p>
+                <strong>The Problem:</strong> The MCP specification requires all tool responses to be wrapped in a specific structure: <code>{"content": [{"type": "text", "text": "..."}]}</code>. We were returning raw response data, assuming the framework would handle wrapping.
+            </p>
+            
+            <p>
+                <strong>The Symptom:</strong> Tools would execute successfully on the server side, but Claude Desktop would treat responses as invalid and not display results.
+            </p>
+            
+            <p>
+                <strong>The Solution:</strong> Added a wrapper function in the dispatcher:
+            </p>
+            
+            <pre>def _wrap_mcp_content(result: Any) -> dict:
+    """Wrap tool results in MCP content structure."""
+    if isinstance(result, dict) and "content" in result:
+        return result  # Already wrapped
+    
+    # Convert result to string and wrap
+    text = json.dumps(result) if not isinstance(result, str) else result
+    return {
+        "content": [{
+            "type": "text",
+            "text": text
+        }]
+    }</pre>
+        </div>
+
+        <div class="fix-block" id="fix-4">
+            <h4>Fix #4: Notification Handlers Must Return Empty String</h4>
+            
+            <p>
+                <strong>The Problem:</strong> MCP uses JSON-RPC notifications (requests without IDs) for lifecycle events like <code>notifications/initialized</code>. Our dispatcher was treating these as errors when no handler was found, returning error responses for notification requests.
+            </p>
+            
+            <p>
+                <strong>The Symptom:</strong> Connection would establish but immediately disconnect as Claude Desktop received error responses to its initialization notifications.
+            </p>
+            
+            <p>
+                <strong>The Solution:</strong> Added explicit notification detection and empty string return:
+            </p>
+            
+            <pre>async def dispatch(self, request: dict) -> str:
+    """Dispatch MCP request to appropriate handler."""
+    
+    # Check if this is a notification (no "id" field)
+    if "id" not in request:
+        # Notifications don't expect responses
+        return ""
+    
+    # Regular request-response handling...
+    method = request.get("method")
+    # ...</pre>
+        </div>
+
+        <div class="fix-block" id="fix-5">
+            <h4>Fix #5: Stdio Transport Requires Pure JSON-RPC on Stdout</h4>
+            
+            <p>
+                <strong>The Problem:</strong> The MCP stdio transport is extremely sensitive to stdout pollution. Any debug logs, print statements, or error messages to stdout break JSON-RPC parsing and cause silent connection failures.
+            </p>
+            
+            <p>
+                <strong>The Symptom:</strong> Server would appear to start successfully, but Claude Desktop would disconnect immediately. Debugging was nearly impossible because we couldn't see what was happening.
+            </p>
+            
+            <p>
+                <strong>The Solution:</strong> Redirected all stderr to a log file in the launch command:
+            </p>
+            
+            <pre>// claude_desktop_config.json
+{
+  "mcpServers": {
+    "lap-core": {
+      "command": "wsl",
+      "args": [
+        "-e", "bash", "-c",
+        "exec 2>/tmp/lap-mcp-stderr.log; source ~/.profile && cd ~/projects/lap_core && /home/kbroder/.local/bin/poetry run lap-mcp-stdio"
+      ]
+    }
+  }
+}</pre>
+            
+            <p>
+                The <code>exec 2>&gt;</code> syntax ensures stderr redirection happens before any Python code runs, catching even early import errors.
+            </p>
+        </div>
+
+        <div class="fix-block" id="fix-6">
+            <h4>Fix #6: JSON-RPC Responses Must Keep <code>id</code> and <code>jsonrpc</code></h4>
+            
+            <p>
+                <strong>The Problem:</strong> Later deployments started using convenience helpers like Pydantic’s <code>model_dump_json(exclude_none=True)</code> or manual <code>response.pop("id")</code> cleanup. Those helpers remove <code>"id"</code> when it is <code>null</code>, violating the JSON-RPC 2.0 spec and causing Claude Desktop to reject otherwise valid responses.
+            </p>
+            
+            <p>
+                <strong>The Symptom:</strong> Tool execution logs looked perfect, but the client silently dropped responses because required headers vanished when <code>id</code> was null.
+            </p>
+            
+            <p>
+                <strong>The Solution:</strong> Never exclude <code>"id"</code> or <code>"jsonrpc"</code>; only gate <code>result</code> vs. <code>error</code>. Our Preflight Validator now checks for both <code>exclude_none=True</code> patterns and explicit <code>.pop("id")</code>/<code>.pop("jsonrpc")</code> calls.
+            </p>
+            
+            <pre># ✅ Keep id/jsonrpc even when None
+payload = {
+    "jsonrpc": "2.0",
+    "id": request.id,
+    "result": data,
+}
+return payload
+
+# ❌ This removes id/jsonrpc
+return payload.model_dump_json(exclude_none=True)</pre>
+        </div>
+
+        <h2 id="wsl2-complexity">The WSL2 Complexity Layer</h2>
+        
+        <p>
+            Running the MCP server in WSL2 while Claude Desktop runs on Windows added several subtle complications:
+        </p>
+        
+        <div class="warning">
+            <strong>PATH Issues:</strong> Poetry installs executables to <code>~/.local/bin</code>, but non-interactive WSL shells don't source <code>~/.profile</code> by default. We had to explicitly source the profile and use absolute paths to the Poetry binary.
+        </div>
+        
+        <div class="warning">
+            <strong>Import Conflicts:</strong> A file named <code>http.py</code> in our codebase created circular import issues with Python's standard library <code>http</code> module. Renaming to <code>http_utils.py</code> resolved it.
+        </div>
+        
+        <div class="warning">
+            <strong>Environment Variables:</strong> The difference between <code>export VAR=value</code> and <code>VAR=value</code> in bash scripts caused environment variables to not propagate to Poetry-managed processes.
+        </div>
+
+        <h2 id="validation-strategy">Validation Strategy</h2>
+        
+        <p>
+            The key to debugging this was building test harnesses at each layer:
+        </p>
+        
+        <ol style="margin-left: 2rem; margin-bottom: 1.2rem;">
+            <li><strong>Unit Tests:</strong> Validated individual tool handlers returned correct data structures</li>
+            <li><strong>MCP Compliance:</strong> Tested raw JSON-RPC requests/responses against the specification</li>
+            <li><strong>Stdio Transport:</strong> Verified no stdout pollution using captured output tests</li>
+            <li><strong>End-to-End:</strong> Connected via Claude Desktop and verified tool discovery and execution</li>
+        </ol>
+        
+        <p>
+            Each layer required its own testing approach because the stdio transport made traditional debugging impossible.
+        </p>
+
+        <h2 id="working-config">The Working Configuration</h2>
+        
+        <div class="success">
+            <strong>Final Result:</strong> All 7 LAP::CORE tools operational in Claude Desktop:
+            <ul style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                <li><code>lap_health_ping</code> - Liveness check</li>
+                <li><code>lap_core_status</code> - Platform status (3 scopes)</li>
+                <li><code>prom_query_instant</code> - Prometheus instant query</li>
+                <li><code>prom_query_range</code> - Prometheus range query</li>
+                <li><code>caddy_admin_reload</code> - Caddy reload (OPA-protected)</li>
+            </ul>
+        </div>
+
+        <h2 id="lessons">Lessons for MCP Implementers</h2>
+        
+        <p>
+            If you're implementing an MCP server, pay close attention to:
+        </p>
+        
+        <ol style="margin-left: 2rem; margin-bottom: 1.2rem;">
+            <li><strong>Tool name validation:</strong> Stick to <code>[a-zA-Z0-9_-]</code> only</li>
+            <li><strong>Schema correctness:</strong> Properties must be objects, not arrays</li>
+            <li><strong>Response wrapping:</strong> Always use the MCP content structure</li>
+            <li><strong>Notification handling:</strong> Return empty strings for notifications</li>
+            <li><strong>Stdio hygiene:</strong> Absolutely nothing but JSON-RPC on stdout</li>
+            <li><strong>JSON-RPC headers:</strong> Never remove <code>id</code> or <code>jsonrpc</code> from responses</li>
+        </ol>
+        
+        <p>
+            The MCP specification is precise, but the error modes are subtle. Silent failures are the norm, not the exception.
+        </p>
+
+        <h2 id="reference-impl">Reference Implementation</h2>
+        
+        <p>
+            Our full implementation is available at <a href="https://github.com/SyzygySys/lap_core">github.com/SyzygySys/lap_core</a> in the <code>feat/sse_mcp</code> branch. Key files:
+        </p>
+        
+        <ul style="margin-left: 2rem; margin-bottom: 1.2rem;">
+            <li><code>src/lap_core/mcp/tools.py</code> - Tool definitions with correct schemas</li>
+            <li><code>src/lap_core/mcp/dispatcher.py</code> - Request routing with notification handling</li>
+            <li><code>src/lap_core/mcp/mcp_stdio.py</code> - Stdio transport implementation</li>
+        </ul>
+
+        <h2 id="community">Community Contribution</h2>
+        
+        <p>
+            We've documented these fixes on the relevant GitHub issues and created a companion tool, <a href="https://github.com/SyzygySys/preflight-tools">preflight-tools</a>, to validate MCP servers before deployment. The validator now checks all six of these common issues automatically.
+        </p>
+
+        <h2 id="debugging-addendum">Debugging Addendum</h2>
+        
+        <p>
+            Debugging MCP servers in our Windows + WSL2 + Poetry environment requires multiple tools. Here's our quick-reference guide for common debugging scenarios.
+        </p>
+
+        <div class="debug-section">
+            <h4>Poetry Debug</h4>
+            <p>Check Poetry environment and dependencies:</p>
+            <pre># Show which Poetry is running and where
+which poetry
+poetry --version
+
+# Show virtual environment info
+poetry env info
+
+# List installed packages
+poetry show
+
+# Verify a specific package
+poetry show fastapi
+
+# Run with verbose output
+poetry run -vvv lap-mcp-stdio</pre>
+        </div>
+
+        <div class="debug-section">
+            <h4>FastAPI Debug Mode</h4>
+            <p>Enable detailed logging and auto-reload:</p>
+            <pre># In your FastAPI startup
+import uvicorn
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,        # Auto-reload on code changes
+        log_level="debug"   # Verbose logging
+    )
+
+# Or from command line
+poetry run uvicorn app:app --reload --log-level debug</pre>
+        </div>
+
+        <div class="debug-section">
+            <h4>Python DevTools</h4>
+            <p>Rich debugging output for development:</p>
+            <pre># Install devtools
+poetry add --group dev devtools
+
+# Use in code
+from devtools import debug
+
+# Pretty-print any object
+debug(my_complex_object)
+
+# Set breakpoints
+import pdb; pdb.set_trace()  # Python debugger
+
+# Or use IPython for better REPL
+import IPython; IPython.embed()</pre>
+        </div>
+
+        <div class="debug-section">
+            <h4>Claude Desktop Logs (Windows)</h4>
+            <p>Access Claude Desktop application logs:</p>
+            <pre># View logs in real-time (PowerShell)
+Get-Content "$env:APPDATA\Claude\logs\mcp*.log" -Wait -Tail 50
+
+# Search logs for errors
+Select-String -Path "$env:APPDATA\Claude\logs\*.log" -Pattern "error|failed"
+
+# View specific MCP server logs
+Get-Content "$env:APPDATA\Claude\logs\mcp-server-lap-core.log"</pre>
+        </div>
+
+        <div class="debug-section">
+            <h4>Claude Desktop Config Inspection</h4>
+            <p>Read and validate your MCP server configuration:</p>
+            <pre># View config as formatted JSON (PowerShell)
+Get-Content "$env:APPDATA\Claude\claude_desktop_config.json" | ConvertFrom-Json | ConvertTo-Json -Depth 10
+
+# Or just view raw
+Get-Content "$env:APPDATA\Claude\claude_desktop_config.json"
+
+# Example valid config
+{
+  "mcpServers": {
+    "lap-core": {
+      "command": "wsl",
+      "args": [
+        "-e", "bash", "-c",
+        "exec 2>/tmp/lap-mcp-stderr.log; source ~/.profile && cd ~/projects/lap_core && poetry run lap-mcp-stdio"
+      ]
+    }
+  }
+}</pre>
+        </div>
+
+        <div class="debug-section">
+            <h4>MCP Server Direct Testing</h4>
+            <p>Test MCP tools directly without Claude Desktop:</p>
+            <pre># Test a tool call with verbose output
+cd ~/projects/lap_core
+
+# Send JSON-RPC request to stdin, capture stderr
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"lap_health_ping","arguments":{}}}' | \
+  poetry run lap-mcp-stdio 2>&1 | head -20
+
+# Expected output:
+[STDIO] Authenticated as: chuck@field.agent
+[STDIO] Ready to accept MCP requests
+[STDIO] Request: tools/call (id=1)
+[STDIO]   Tool: lap_health_ping
+[STDIO]   Args: {}
+[STDIO] Response JSON: {"jsonrpc":"2.0","id":1,"result":{"ok":true,"ts":1762542458}}
+{"jsonrpc":"2.0","id":1,"result":{"ok":true,"ts":1762542458}}
+[STDIO] Response sent
+
+# Test the initialize handshake
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | \
+  poetry run lap-mcp-stdio 2>&1</pre>
+        </div>
+
+        <div class="debug-section">
+            <h4>Check for Hidden Characters</h4>
+            <p>Detect invisible characters that break JSON parsing:</p>
+            <pre># Use xxd to show hex dump of config file
+xxd "$APPDATA\Claude\claude_desktop_config.json" | head -20
+
+# Expected output (clean JSON):
+00000000: 7b0a 2020 226d 6370 5365 7276 6572 7322  {.  "mcpServers"
+00000010: 3a20 7b0a 2020 2020 226c 6170 2d63 6f72  : {.    "lap-cor
+00000020: 6522 3a20 7b0a 2020 2020 2020 2263 6f6d  e": {.      "com
+00000030: 6d61 6e64 223a 2022 7773 6c22 2c0a 2020  mand": "wsl",.
+
+# Look for:
+# - BOM markers (ef bb bf at start)
+# - Non-breaking spaces (c2 a0 instead of 20)
+# - Carriage returns in wrong places (0d 0a vs 0a)
+
+# In WSL bash, check server output
+cd ~/projects/lap_core
+poetry run lap-mcp-stdio < /dev/null 2>&1 | xxd | head -20</pre>
+        </div>
+
+        <div class="debug-section">
+            <h4>Stderr Redirection Check</h4>
+            <p>Verify stderr is properly redirected (critical for stdio):</p>
+            <pre># Test that stderr goes to file, not stdout
+cd ~/projects/lap_core
+
+# This should show NO stderr output, only JSON
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
+  bash -c "exec 2>/tmp/test-stderr.log; poetry run lap-mcp-stdio"
+
+# Check the stderr log
+cat /tmp/test-stderr.log
+
+# Should contain debug messages like:
+# [STDIO] Ready to accept MCP requests
+# [STDIO] Request: tools/list (id=1)</pre>
+        </div>
+
+        <div class="debug-section">
+            <h4>WSL2 Path Debugging</h4>
+            <p>Diagnose PATH and environment issues in WSL2:</p>
+            <pre># Check what Poetry sees in non-interactive shell
+wsl -e bash -c 'echo $PATH'
+
+# vs interactive shell
+wsl -e bash -l -c 'echo $PATH'
+
+# Source profile explicitly
+wsl -e bash -c 'source ~/.profile && echo $PATH'
+
+# Find where Poetry installed things
+wsl -e bash -c 'source ~/.profile && which poetry'
+# Should show: /home/username/.local/bin/poetry
+
+# Test full command as Claude Desktop runs it
+wsl -e bash -c "exec 2>/tmp/test.log; source ~/.profile && cd ~/projects/lap_core && poetry run lap-mcp-stdio --version"</pre>
+        </div>
+
+        <h3>Common Debugging Patterns</h3>
+        
+        <p>
+            When debugging MCP connections, work through these layers systematically:
+        </p>
+        
+        <ol style="margin-left: 2rem; margin-bottom: 1.2rem;">
+            <li><strong>Syntax:</strong> Check config JSON for hidden characters with <code>xxd</code></li>
+            <li><strong>Environment:</strong> Verify PATH and Poetry location in WSL2</li>
+            <li><strong>Isolation:</strong> Test MCP server directly with echo + stdin</li>
+            <li><strong>Transport:</strong> Confirm stderr redirection is working</li>
+            <li><strong>Protocol:</strong> Validate tool schemas and response formats</li>
+            <li><strong>Integration:</strong> Check Claude Desktop logs for connection attempts</li>
+        </ol>
+        
+        <p>
+            Each layer builds on the previous. Don't skip straight to integration testing—the lower layers often reveal the root cause faster.
+        </p>
+
+        <table class="summary-table">
+            <tr>
+                <th>Aspect</th>
+                <th>Detail</th>
+            </tr>
+            <tr>
+                <td><strong>Theme</strong></td>
+                <td>Protocol debugging and specification compliance</td>
+            </tr>
+            <tr>
+                <td><strong>Outcome</strong></td>
+                <td>LAP::CORE MCP server fully operational with 7 working tools</td>
+            </tr>
+            <tr>
+                <td><strong>Artifacts</strong></td>
+                <td>Working MCP implementation + preflight-tools validator</td>
+            </tr>
+            <tr>
+                <td><strong>Duration</strong></td>
+                <td>6 hours of intensive debugging</td>
+            </tr>
+            <tr>
+                <td><strong>Status</strong></td>
+                <td>✅ Production ready; documentation published</td>
+            </tr>
+        </table>
+
+        <blockquote>
+            "The best debugging sessions are the ones that generate artifacts that help others avoid the same pain."
+            <br>— Kevin Broderick, Architect
+        </blockquote>
+
+        <section class="notebook-footer">
+            <div class="integrity-block">
+                <div><strong>🔒 Integrity Verification</strong></div>
+                <div style="margin-top: 0.5rem;">
+                    Content Hash (SHA-256 truncated):<br>
+                    <code>ce626c84-3a9f-4d2b-8c7e-6f5a4b3d9e1a</code>
+                </div>
+                <div style="margin-top: 0.5rem;">
+                    RAT Anchor ID: <code>RAT-ACE-LOG-14-MCP-DEBUG</code><br>
+                    Generated At: 2025-11-19 18:10 UTC<br>
+                    File Origin: <code>~/projects/docs/knowledge/guides/about/architects_notebook/log_14.md</code><br>
+                    Maintainer: SyzygySys Persistence Office
+                </div>
+            </div>
+
+            <div class="legal-footer">
+                © 2025 SyzygySys Ltd. All Rights Reserved.<br>
+                SyzygySys — Infrastructure × Intelligence × Imagination.<br>
+                This document is part of the Captain’s Blog series within the Architect’s Notebook.<br>
+                Unauthorized distribution without attribution is prohibited.<br>
+                For licensing or citation, contact legal@syzygysys.io.
+            </div>
+        </section>
+    </div>
+</body>
+</html>

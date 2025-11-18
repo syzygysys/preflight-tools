@@ -17,6 +17,12 @@ app = typer.Typer(
 )
 console = Console()
 
+COMING_SOON_MESSAGE = (
+    "[yellow]A2A validation is coming soon![/yellow]\n"
+    "Reason: Agent-to-Agent protocol guidance is still being finalized for open publication.\n"
+    "Community contributions are welcome—open a PR if you'd like to help ship A2A support sooner."
+)
+
 
 @app.command()
 def validate(path: str = typer.Argument(..., help="File or directory to validate")):
@@ -25,7 +31,7 @@ def validate(path: str = typer.Argument(..., help="File or directory to validate
     
     Coming soon!
     """
-    console.print("[yellow]A2A validation is coming soon![/yellow]")
+    console.print(COMING_SOON_MESSAGE)
     console.print("Follow development at: https://github.com/syzygysys/preflight-tools")
     raise typer.Exit(0)
 
