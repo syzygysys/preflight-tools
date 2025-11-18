@@ -214,6 +214,171 @@ class NotificationHandlingCheck(BaseCheck):
         return issues
 
 
+class _StdoutPollutionVisitor(ast.NodeVisitor):
+    """AST visitor that detects stdout pollution patterns."""
+
+    SAFE_PRINT_BASES = {"console", "console_err"}
+
+    def __init__(self, content: str, check_name: str):
+        self.content = content
+        self.check_name = check_name
+        self.issues: List[ValidationIssue] = []
+        self.sys_modules: set[str] = set()
+        self.stdout_aliases: set[str] = set()
+        self.print_aliases: set[str] = {"print"}
+
+    def visit_Import(self, node: ast.Import) -> Any:
+        for alias in node.names:
+            if alias.name == "sys":
+                self.sys_modules.add(alias.asname or alias.name)
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> Any:
+        if node.module == "sys":
+            for alias in node.names:
+                if alias.name == "stdout":
+                    self.stdout_aliases.add(alias.asname or alias.name)
+                if alias.name == "print":
+                    self.print_aliases.add(alias.asname or alias.name)
+        self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> Any:
+        self._handle_assignment(node.targets, node.value)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> Any:
+        targets = [node.target]
+        self._handle_assignment(targets, node.value)
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> Any:
+        if self._is_print_call(node.func):
+            self._add_issue(
+                node,
+                "print() statement will pollute stdout and break stdio transport",
+                "Use logging.error() or configure Rich console to write to stderr.",
+            )
+        elif self._is_stdout_write_call(node.func):
+            self._add_issue(
+                node,
+                "Writing to sys.stdout will break stdio transport",
+                "Use sys.stderr.write() or a logger configured for stderr.",
+            )
+        self.generic_visit(node)
+
+    # Assignment helpers -------------------------------------------------
+    def _handle_assignment(self, targets: List[ast.expr], value: Optional[ast.expr]) -> None:
+        if value and self._value_refers_to_stdout(value):
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    self.stdout_aliases.add(target.id)
+        if value and self._value_refers_to_print(value):
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    self.print_aliases.add(target.id)
+
+        for target in targets:
+            self._maybe_flag_assignment(target, value)
+
+    def _maybe_flag_assignment(self, target: ast.expr, value: Optional[ast.expr]) -> None:
+        if self._is_sys_stdout_attribute(target):
+            self._add_issue(
+                target,
+                "Reassigning sys.stdout breaks MCP stdio transport",
+                "Avoid redirecting sys.stdout; log to stderr instead.",
+            )
+        elif isinstance(target, ast.Name) and target.id in self.stdout_aliases:
+            if value is None or not self._value_refers_to_stdout(value):
+                self._add_issue(
+                    target,
+                    "Reassigning stdout alias breaks MCP stdio transport",
+                    "Keep stdout aliases pointed at sys.stderr or remove them entirely.",
+                )
+
+    # Detection helpers --------------------------------------------------
+    def _is_print_call(self, func: ast.expr) -> bool:
+        if isinstance(func, ast.Name):
+            return func.id in self.print_aliases
+
+        if isinstance(func, ast.Attribute):
+            parts = self._attribute_chain(func)
+            if parts and parts[-1] == "print":
+                if any(part in self.SAFE_PRINT_BASES for part in parts[:-1]):
+                    return False
+                return True
+
+        return False
+
+    def _is_stdout_write_call(self, func: ast.expr) -> bool:
+        if not isinstance(func, ast.Attribute):
+            return False
+
+        if func.attr != "write":
+            return False
+
+        target = func.value
+        if self._is_sys_stdout_attribute(target):
+            return True
+
+        if isinstance(target, ast.Name) and target.id in self.stdout_aliases:
+            return True
+
+        return False
+
+    def _is_sys_stdout_attribute(self, node: ast.expr) -> bool:
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == "stdout"
+            and isinstance(node.value, ast.Name)
+            and node.value.id in self.sys_modules
+        )
+
+    def _value_refers_to_stdout(self, value: ast.expr) -> bool:
+        if isinstance(value, ast.Name):
+            return value.id in self.stdout_aliases
+
+        if isinstance(value, ast.Attribute):
+            return (
+                value.attr == "stdout"
+                and isinstance(value.value, ast.Name)
+                and value.value.id in self.sys_modules
+            )
+
+        return False
+
+    def _value_refers_to_print(self, value: ast.expr) -> bool:
+        if isinstance(value, ast.Name):
+            return value.id in self.print_aliases
+
+        if isinstance(value, ast.Attribute):
+            parts = self._attribute_chain(value)
+            if parts and parts[-1] == "print":
+                return not any(part in self.SAFE_PRINT_BASES for part in parts[:-1])
+
+        return False
+
+    def _attribute_chain(self, node: ast.expr) -> List[str]:
+        parts: List[str] = []
+        current = node
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, ast.Name):
+            parts.append(current.id)
+        return list(reversed(parts))
+
+    def _add_issue(self, node: ast.AST, message: str, suggestion: str) -> None:
+        snippet = ast.get_source_segment(self.content, node)
+        self.issues.append(ValidationIssue(
+            check_name=self.check_name,
+            severity=IssueSeverity.ERROR,
+            message=message,
+            line_number=getattr(node, "lineno", None),
+            suggestion=suggestion,
+            code_snippet=snippet.strip() if snippet else None,
+        ))
+
+
 class StdoutPollutionCheck(BaseCheck):
     """
     Check #5: No stdout pollution in stdio transport
@@ -229,62 +394,19 @@ class StdoutPollutionCheck(BaseCheck):
     description = "Detect stdout pollution that breaks stdio transport"
     
     def check(self, content: str, file_path: Optional[Path] = None) -> List[ValidationIssue]:
-        issues = []
-        
-        # Find bare print() calls (not console.print or in docstrings)
-        for match in re.finditer(r'(?<!console\.)\bprint\s*\(', content):
-            line_num = content[:match.start()].count('\n') + 1
-            
-            # Get surrounding context to check if in docstring/comment
-            line_start = content.rfind('\n', 0, match.start()) + 1
-            line_end = content.find('\n', match.start())
-            if line_end == -1:
-                line_end = len(content)
-            line_content = content[line_start:line_end].strip()
-            
-            # Skip if in docstring, comment, or string literal
-            context_before = content[max(0, match.start()-200):match.start()]
-            if '"""' in context_before[-100:] or "'''" in context_before[-100:]:
-                # Check if we're in a docstring
-                triple_count = context_before.count('"""') + context_before.count("'''")
-                if triple_count % 2 == 1:  # Odd number = inside docstring
-                    continue
-            
-            if line_content.startswith('#'):
-                continue
-                
-            # Skip if it's clearly an example in a string
-            if match.start() > 0 and content[match.start()-1] in ['"', "'"]:
-                continue
-            
-            issues.append(ValidationIssue(
+        try:
+            tree = ast.parse(content)
+        except SyntaxError as exc:
+            return [ValidationIssue(
                 check_name=self.name,
-                severity=IssueSeverity.ERROR,
-                message="print() statement will pollute stdout and break stdio transport",
-                line_number=line_num,
-                suggestion="Use logging.error() or console.print() from Rich library",
-                code_snippet=line_content
-            ))
+                severity=IssueSeverity.INFO,
+                message=f"Unable to parse file for stdout analysis: {exc.msg}",
+                suggestion="Ensure the file parses before running preflight checks.",
+            )]
         
-        # Check for sys.stdout.write (but not in docstrings)
-        for match in re.finditer(r'sys\.stdout\.write', content):
-            line_num = content[:match.start()].count('\n') + 1
-            
-            # Check if in docstring
-            context_before = content[max(0, match.start()-200):match.start()]
-            triple_count = context_before.count('"""') + context_before.count("'''")
-            if triple_count % 2 == 1:  # Inside docstring
-                continue
-                
-            issues.append(ValidationIssue(
-                check_name=self.name,
-                severity=IssueSeverity.ERROR,
-                message="sys.stdout.write() will break stdio transport",
-                line_number=line_num,
-                suggestion="Use sys.stderr.write() or logging",
-            ))
-        
-        return issues
+        visitor = _StdoutPollutionVisitor(content, self.name)
+        visitor.visit(tree)
+        return visitor.issues
 
 
 class JsonRpcResponseStructureCheck(BaseCheck):
